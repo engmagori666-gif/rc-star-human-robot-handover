@@ -1,2 +1,0 @@
-python -m pytest works but pytest does not.
-Still need to figure out how to activate conda env in Dockerfile.

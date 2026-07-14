@@ -1,0 +1,30 @@
+{
+  "episodes": 500,
+  "success_rate": 0.726,
+  "successes": 363,
+  "mean_episode_length": 111.964,
+  "timeout_rate": 0.002,
+  "mean_return": 21.062172824242015,
+  "mean_critical_collisions": 0.228,
+  "median_critical_collisions": 0.0,
+  "p90_critical_collisions": 1.0,
+  "p95_critical_collisions": 1.0,
+  "max_critical_collisions": 4.0,
+  "zero_critical_collision_rate": 0.816,
+  "successful_episode_mean_critical_collisions": 0.0,
+  "failed_episode_mean_critical_collisions": 0.8321167883211679,
+  "mean_failsafe_interventions": 34.976,
+  "median_failsafe_interventions": 35.5,
+  "p95_failsafe_interventions": 55.0,
+  "successful_episode_mean_failsafe_interventions": 39.80440771349862,
+  "failed_episode_mean_failsafe_interventions": 22.182481751824817,
+  "mean_action_resamples": 0.078,
+  "mean_capture_count": 0.748,
+  "source_files": [
+    "/home/human-robot-gym/csv/evaluation/rc_star_matched_seed100_100ep/raw/icra_2024__RHH_SIR_reactive_v1_final__run_0_final.csv",
+    "/home/human-robot-gym/csv/evaluation/rc_star_matched_seed200_100ep/raw/icra_2024__RHH_SIR_reactive_v1_final__run_0_final.csv",
+    "/home/human-robot-gym/csv/evaluation/rc_star_matched_seed300_100ep/raw/icra_2024__RHH_SIR_reactive_v1_final__run_0_final.csv",
+    "/home/human-robot-gym/csv/evaluation/rc_star_matched_seed400_100ep/raw/icra_2024__RHH_SIR_reactive_v1_final__run_0_final.csv",
+    "/home/human-robot-gym/csv/evaluation/rc_star_matched_seed500_100ep/raw/icra_2024__RHH_SIR_reactive_v1_final__run_0_final.csv"
+  ]
+}

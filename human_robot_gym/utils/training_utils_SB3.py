@@ -29,12 +29,21 @@ from stable_baselines3 import SAC, PPO, HerReplayBuffer
 from human_robot_gym.utils.env_util_SB3 import make_vec_env
 from human_robot_gym.utils.config_utils import TrainingConfig
 from human_robot_gym.utils.training_utils import _compose_environment_kwargs, get_environment_wrap_fn, init_wandb
+from human_robot_gym.utils.behavior_cloning import pretrain_sac_actor
+from human_robot_gym.utils.sac_warm_start import (
+    configure_sac_actor_finetune,
+    prefill_sac_replay_buffer,
+    pretrain_sac_critics,
+    write_warm_start_metrics,
+)
 
 
 from human_robot_gym.wrappers.HER_buffer_add_monkey_patch import custom_add, _custom_sample_transitions
 from human_robot_gym.callbacks.custom_wandb_callback import CustomWandbCallback
 from human_robot_gym.callbacks.model_reset_callback import ModelResetCallback
 from human_robot_gym.callbacks.logging_callback import LoggingCallback
+from human_robot_gym.callbacks.rsi_curriculum_callback import RSICurriculumCallback
+from human_robot_gym.callbacks.reactivity_curriculum_callback import ReactivityCurriculumCallback
 
 SB3_ALGORITHMS = {
     "SAC": SAC,
@@ -347,6 +356,31 @@ def create_callback(
             )
         )
 
+    if hasattr(config.run, "rsi_curriculum") and config.run.rsi_curriculum:
+        rsi_floor = getattr(config.run, "rsi_floor", 0.0)
+        callbacks.append(
+            RSICurriculumCallback(
+                total_timesteps=config.run.n_steps,
+                rsi_floor=rsi_floor,
+                schedule_mode=getattr(config.run, "rsi_curriculum_mode", "staged"),
+                rsi_start=getattr(config.run, "rsi_start", 0.9),
+                end_fraction=getattr(config.run, "rsi_end_fraction", 0.7),
+                verbose=1,
+            )
+        )
+
+    if hasattr(config.run, "reactivity_curriculum") and config.run.reactivity_curriculum:
+        callbacks.append(
+            ReactivityCurriculumCallback(
+                total_timesteps=config.run.n_steps,
+                max_speed_scale=getattr(config.run, "reactivity_max_speed_scale", 0.010),
+                schedule_mode=getattr(config.run, "reactivity_curriculum_mode", "staged"),
+                start_fraction=getattr(config.run, "reactivity_start_fraction", 0.0),
+                end_fraction=getattr(config.run, "reactivity_end_fraction", 0.7),
+                verbose=1,
+            )
+        )
+
     return CallbackList(callbacks)
 
 
@@ -368,6 +402,96 @@ def _run_training_with_id(config: TrainingConfig, run_id: Optional[int]) -> Base
 
     env = create_training_vec_env(config=config, evaluation_mode=False)
     model = create_model(config=config, env=env, run_id=run_id, save_logs=run_id != debug_run_id)
+
+    if (
+        config.run.load_step is None
+        and getattr(config.run, "behavior_cloning", False)
+    ):
+        if run_id == debug_run_id:
+            bc_metrics_path = None
+        else:
+            bc_metrics_path = (
+                f"models/{config.wandb_run.project}/"
+                f"{config.wandb_run.group}/{config.wandb_run.name}/"
+                "behavior_cloning_metrics.json"
+            )
+        pretrain_sac_actor(
+            model=model,
+            dataset_name=getattr(
+                config.run,
+                "bc_dataset_name",
+                config.run.dataset_name,
+            ),
+            epochs=getattr(config.run, "bc_epochs", 50),
+            batch_size=getattr(config.run, "bc_batch_size", 512),
+            learning_rate=getattr(config.run, "bc_learning_rate", 3e-4),
+            validation_fraction=getattr(
+                config.run,
+                "bc_validation_fraction",
+                0.1,
+            ),
+            log_std_target=getattr(config.run, "bc_log_std_target", -3.0),
+            log_std_weight=getattr(config.run, "bc_log_std_weight", 0.01),
+            seed=config.run.seed,
+            append_time=getattr(
+                config.wrappers.state_based_expert_imitation_reward,
+                "observe_time",
+                False,
+            ),
+            metrics_path=bc_metrics_path,
+        )
+
+    if (
+        config.run.load_step is None
+        and getattr(config.run, "sac_warm_start", False)
+    ):
+        warm_start_metrics = {}
+        warm_start_metrics["replay_prefill"] = (
+            prefill_sac_replay_buffer(
+                model=model,
+                env=env,
+                steps=getattr(
+                    config.run,
+                    "sac_replay_prefill_steps",
+                    10000,
+                ),
+            )
+        )
+        warm_start_metrics["critic_pretraining"] = (
+            pretrain_sac_critics(
+                model=model,
+                gradient_steps=getattr(
+                    config.run,
+                    "sac_critic_warmup_steps",
+                    10000,
+                ),
+                batch_size=config.algorithm.batch_size,
+            )
+        )
+        configure_sac_actor_finetune(
+            model=model,
+            actor_learning_rate=getattr(
+                config.run,
+                "sac_actor_learning_rate",
+                1e-5,
+            ),
+            freeze_actor=getattr(
+                config.run,
+                "sac_freeze_actor",
+                False,
+            ),
+        )
+        if run_id != debug_run_id:
+            write_warm_start_metrics(
+                metrics=warm_start_metrics,
+                path=(
+                    f"models/{config.wandb_run.project}/"
+                    f"{config.wandb_run.group}/"
+                    f"{config.wandb_run.name}/"
+                    "sac_warm_start_metrics.json"
+                ),
+            )
+
     callback = create_callback(config=config, model=model, env=env, run_id=run_id)
 
     model.learn(

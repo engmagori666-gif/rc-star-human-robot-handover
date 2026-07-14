@@ -138,6 +138,12 @@ def evaluate_to_df(
     if not evaluate_expert:
         model.set_env(env)
 
+    # SB3 model loading restores the training seed and mutates NumPy's global
+    # RNG. HumanEnv uses that global RNG during reset, so reapply the requested
+    # evaluation seed after loading to make evaluation shards independent.
+    if config.run.eval_seed is not None:
+        np.random.seed(config.run.eval_seed)
+
     ep_returns = []
     ep_lengths = []
     successes = []

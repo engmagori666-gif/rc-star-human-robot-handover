@@ -19,3 +19,15 @@ multirun/
 videos/
 csv/
 my_models/
+
+# Local experiment/session artifacts not needed in the private source repo
+/.claude/
+/*.log
+/bench_mark_pages/
+/bench_mark_extracted.txt
+
+# Root-level duplicate paper drafts; canonical copies live in FINAL_PAPER_PACKAGE/
+/Emanuel Magori-Conference Paper - RC-STAR Updated - Codex Revised.docx
+/STAR_paper.docx
+/STAR_paper_SMA2025.docx
+/STAR_paper.pdf

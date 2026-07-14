@@ -23,5 +23,18 @@ from human_robot_gym.environments.manipulation.collaborative_stacking_cartesian_
 from human_robot_gym.environments.manipulation.collaborative_hammering_cartesian_env import (  # noqa: F401
     CollaborativeHammeringCart
 )
+from human_robot_gym.environments.manipulation.reactive_handover_env import (  # noqa: F401
+    ReactiveHumanHandoverCart
+)
+from human_robot_gym.environments.manipulation.scripted_handover_env import (  # noqa: F401
+    ScriptedHandoverCartV2
+)
+from human_robot_gym.environments.manipulation.transparent_handover_env import (  # noqa: F401
+    TransparentHandoverCart
+)
+
+from human_robot_gym.environments.manipulation.ours_v1_handover_env import (  # noqa: F401
+    ReactiveHumanHandoverCartV1
+)
 
 ALL_ENVIRONMENTS = REGISTERED_ENVS.keys()

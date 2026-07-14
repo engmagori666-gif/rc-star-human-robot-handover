@@ -1,12 +1,12 @@
 n_envs: 1
-n_steps: 1_000_000
-save_freq: 200_000
+n_steps: 3_000_000
+save_freq: 50_000
 test_only: false
 load_step: null
 id: null
-type: debug
+type: tensorboard
 log_interval:
-  - 1000
+  - 8000
   - step
 seed: 0
 eval_seed: null

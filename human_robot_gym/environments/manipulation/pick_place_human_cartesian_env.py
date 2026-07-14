@@ -613,7 +613,11 @@ class PickPlaceHumanCart(HumanEnv):
     def _reset_internal(self):
         """Reset the simulation internal configurations."""
         # Set the desired new initial joint angles before resetting the robot.
-        self.robots[0].init_qpos = np.array([0, 0.0, -np.pi / 2, 0, -np.pi / 2, np.pi / 4])
+        # Use robot_model.init_qpos length to support both 6-DOF (Schunk) and 7-DOF (Panda).
+        n_joints = len(self.robots[0].robot_model.init_qpos)
+        init_qpos = np.zeros(n_joints)
+        init_qpos[:6] = [0, 0.0, -np.pi / 2, 0, -np.pi / 2, np.pi / 4]
+        self.robots[0].init_qpos = init_qpos
 
         super()._reset_internal()
         self._target_positions = [self._sample_target_pos() for _ in range(self._n_targets_to_sample_at_resets)]

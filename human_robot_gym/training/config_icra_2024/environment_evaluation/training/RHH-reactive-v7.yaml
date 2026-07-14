@@ -1,0 +1,222 @@
+# RHH-reactive-v7: V2 clean redesign — Reactive Human Modeling (RHM-RL)
+#
+# Key differences from failed v1-v6 attempts:
+#   v1-v6 used reward_shaping=false (pure sparse) + SIR (expert dataset quality 30%)
+#   v7 uses reward_shaping=true + pure RL (no SIR, no RSI curriculum)
+#
+# Scientific contribution:
+#   Same robot, same shield, same SAC as baseline (RHH-SIR).
+#   Only the human model changes: scripted → reactive (grip-gated, progress-proportional).
+#
+# V2 reactive model parameters:
+#   speed_min=0.001  — human arm frozen without robot grip
+#   speed_scale=2.0  — arm extends ~45 steps when robot at target (ρ=1)
+#
+# V2 reward:
+#   Phase 1 (approach): 0.5 × exp(-3 × ‖eef-obj‖)   per step
+#   Phase 2 (transport): 1.0 × exp(-2 × ‖obj-tgt‖)           per step  (ρ drives arm speed, NOT reward)
+#   Terminal (RETREAT): task_reward = 10.0
+#
+# V2 success: task_phase ∈ {RETREAT, COMPLETE} — human has object
+#
+robot:
+  name: Schunk
+  controller_config_path: controllers/failsafe_controller/config/failsafe.json
+  robot_config_path: models/robots/config/schunk.json
+
+environment:
+  env_id: ReactiveHumanHandoverCart
+  robot_base_offset:
+    - 0.0
+    - 0.0
+    - 0.0
+  env_configuration: default
+  controller_configs: null
+  gripper_types: default
+  initialization_noise: default
+  use_camera_obs: false
+  use_object_obs: true
+  has_renderer: false
+  has_offscreen_renderer: false
+  render_camera: null
+  render_collision_mesh: false
+  render_visual_mesh: true
+  render_gpu_device_id: -1
+  control_freq: 10
+  horizon: 1000
+  ignore_done: false
+  hard_reset: false
+  camera_names: frontview
+  camera_heights: 256
+  camera_widths: 256
+  camera_depths: false
+  camera_segmentations: null
+  renderer: mujoco
+  renderer_config: null
+
+  # PFL (Power and Force Limiting): robot continues at ISO-safe 50mm/s near humans.
+  # SSM stops the robot whenever human's reachable set overlaps, preventing delivery.
+  # Must match baseline (PFL) and must match the scripted-v7 condition.
+  shield_type: PFL
+  visualize_failsafe_controller: false
+  visualize_pinocchio: false
+  control_sample_time: 0.004
+
+  human_animation_names:
+    - RobotHumanHandover/0
+    - RobotHumanHandover/1
+    - RobotHumanHandover/2
+    - RobotHumanHandover/3
+    - RobotHumanHandover/4
+    - RobotHumanHandover/5
+    - RobotHumanHandover/6
+    - RobotHumanHandover/7
+    - RobotHumanHandover/8
+  base_human_pos_offset:
+    - 0.0
+    - 0.0
+    - 0.0
+  human_animation_freq: 90
+  human_rand:
+    - 0.0
+    - 0.2
+    - 0.1
+  n_animations_sampled_per_100_steps: 2
+
+  # Collision threshold: contacts below this Cartesian speed are HUMAN (allowed),
+  # above → HUMAN_CRIT (penalized). Does NOT cap robot velocity (that is v_safe=0.05
+  # in trajectory_parameters_schunk.yaml). Kept at 0.001 matching baseline.
+  safe_vel: 0.001
+  self_collision_safety: 0.01
+  collision_debounce_delay: 0.01
+  seed: ${run.seed}
+  verbose: false
+
+  table_full_size:
+    - 1.5
+    - 2.0
+    - 0.05
+  table_friction:
+    - 1.0
+    - 0.005
+    - 0.0001
+
+  # V2 reward parameters — all non-negative sparse milestones
+  reward_scale: 1.0
+  reward_shaping: true         # dense reward active every step
+  goal_dist: 0.06
+
+  collision_reward: -1.0       # painful but not dominating
+  task_reward: 10.0            # large terminal — success when human grasps (RETREAT)
+  object_gripped_reward: 0.0   # no penalty for gripping (was -0.25 in v1-v6)
+  object_in_human_hand_reward: 10.0  # matches task_reward (RETREAT = success)
+
+  done_at_collision: false
+  done_at_success: true
+  n_object_placements_sampled_per_100_steps: 3
+  object_placement_initializer: null
+  obstacle_placement_initializer: null
+
+  # V2 reactive model — grip-gated, dramatic reactive range
+  speed_min: 0.001             # frozen without robot grip (~0 frame/step)
+  speed_scale: 2.0             # fast when robot delivers (2.0 frame/step at ρ=1)
+  max_transport_dist: 0.5
+
+wrappers:
+  collision_prevention:
+    replace_type: 0
+    n_resamples: 20
+  ik_position_delta:
+    urdf_file: models/assets/robots/schunk/robot_pybullet.urdf
+    action_limit: 0.1
+    x_output_max: 1
+    x_position_limits: null
+    residual_threshold: 0.001
+    max_iter: 50
+  # No SIR: dataset from scripted expert only achieves 30% on reactive env.
+  # Dense reward inside the environment provides sufficient learning signal.
+  failsafe_penalty:
+    penalty: 0.01              # -0.01 per shield intervention (100× < dense reward)
+
+algorithm:
+  name: SAC
+  policy: MlpPolicy
+  learning_rate: 3.0e-4        # standard SB3 default (was 5e-4)
+  buffer_size: 1000000
+  learning_starts: 10000       # more warmup — fills buffer with diverse starts
+  batch_size: 256              # was 128 — better gradient estimates
+  tau: 0.005
+  gamma: 0.995                 # was 0.99 — preserves terminal reward through long episodes
+  train_freq: 1                # was [100, step] — update every env step for reactive signals
+  gradient_steps: 1
+  replay_buffer_kwargs: null
+  optimize_memory_usage: false
+  ent_coef: auto               # was auto_0.2 — let SAC determine entropy independently
+  target_update_interval: 1
+  target_entropy: auto
+  use_sde: false
+  sde_sample_freq: -1
+  use_sde_at_warmup: false
+  create_eval_env: false
+  policy_kwargs:
+    net_arch:
+      - 256                    # was [64,64,64] — 4× larger to handle full obs space
+      - 256
+  verbose: 1
+  seed: ${run.seed}
+  device: auto
+  _init_setup_model: true
+  action_noise: null
+
+run:
+  n_envs: 8
+  n_steps: 3000001
+  save_freq: 200000
+  test_only: false
+  load_step: null
+  id: null
+  type: tensorboard
+  log_interval:
+    - 8000
+    - step
+  seed: null
+  eval_seed: null
+  start_index: 0
+  n_test_episodes: 20
+  env_type: env
+  obs_keys:
+    - object_gripped
+    - vec_eef_to_object
+    - vec_eef_to_target
+    - gripper_aperture
+    - dist_eef_to_human_head
+    - dist_eef_to_human_lh
+    - dist_eef_to_human_rh
+  expert_obs_keys: null
+  log_info_keys:
+    - n_goal_reached
+    - collision
+    - collision_type
+    - n_collisions
+    - n_collisions_static
+    - n_collisions_robot
+    - n_collisions_human
+    - n_collisions_critical
+    - timeout
+    - failsafe_interventions
+    - action_resamples
+    - env_rew_mean
+    - ep_env_rew_mean
+    - early_termination
+  monitor_dir: null
+  vec_env_kwargs: null
+  monitor_kwargs: null
+  verbose: true
+  resetting_interval: null
+
+wandb_run:
+  project: icra_2024
+  entity: null
+  group: RHH_reactive_v7
+  name: run_${run.seed}
+  tags: null

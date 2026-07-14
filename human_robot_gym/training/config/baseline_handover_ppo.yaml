@@ -1,0 +1,20 @@
+defaults:
+  - robot: panda
+  - environment: robot_human_handover_cart
+  - wrappers: safe
+  - run: parallel_training
+  - algorithm: ppo
+  - wandb_run: default_wandb
+  - _self_
+  - consistent_seeding
+
+run:
+  type: tensorboard
+  obs_keys:
+    - object-state
+    - robot0_proprio-state
+    - goal-state
+
+environment:
+  reward_shaping: true
+  shield_type: "OFF"

@@ -17,4 +17,5 @@ set -euo pipefail
 cd /tmp/human-robot-gym/human_robot_gym/controllers/failsafe_controller/sara-shield && sudo rm -rf build safety_shield/build && sudo -E $CONDA_PREFIX/bin/python setup.py install
 cd /tmp/human-robot-gym/ && pip install -e .
 
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/root/.mujoco/mujoco210/bin:/usr/lib/nvidia
 exec "$@"

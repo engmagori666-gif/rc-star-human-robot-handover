@@ -18,6 +18,7 @@ class CollisionPreventionWrapper(Wrapper):
                 0 - replace with zero action
                 1 - resample new action from action space
                 2 - TODO: find close safe action
+                3 - shrink the requested action until it is collision-free
             n_resamples (int): Number of resamples for type 1 or 2.
         """
         assert isinstance(
@@ -33,6 +34,8 @@ class CollisionPreventionWrapper(Wrapper):
             self.replace_action = self.replace_random
         elif replace_type == 2:
             self.replace_action = self.replace_close
+        elif replace_type == 3:
+            self.replace_action = self.replace_shrink
         else:
             raise NotImplementedError
 
@@ -107,6 +110,19 @@ class CollisionPreventionWrapper(Wrapper):
             return replace_actions[best_pick]
         else:
             return self.replace_zero(action)
+
+    def replace_shrink(self, action):
+        """Keep the action direction while reducing its magnitude.
+
+        A zero replacement can repeatedly pin the policy at the same state. This
+        deterministic line search preserves useful motion whenever a smaller
+        action passes the static and self-collision check.
+        """
+        for scale in (0.75, 0.5, 0.25):
+            candidate = action * scale
+            if not self.collision_check_fn(candidate):
+                return candidate
+        return self.replace_zero(action)
 
     def reset(self):
         """Reset the action wrapper variables and calls env.reset()."""

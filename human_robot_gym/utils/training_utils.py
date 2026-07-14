@@ -28,8 +28,16 @@ from human_robot_gym.utils.env_util import make_gym_env, make_expert_obs_env
 from human_robot_gym.utils.config_utils import TrainingConfig, DataCollectionConfig
 
 from human_robot_gym.wrappers.collision_prevention_wrapper import CollisionPreventionWrapper
+from human_robot_gym.wrappers.dense_approach_reward_wrapper import DenseApproachRewardWrapper
+from human_robot_gym.wrappers.failsafe_penalty_wrapper import FailsafePenaltyWrapper
 from human_robot_gym.wrappers.visualization_wrapper import VisualizationWrapper
 from human_robot_gym.wrappers.ik_position_delta_wrapper import IKPositionDeltaWrapper
+from human_robot_gym.wrappers.human_aware_action_governor import (
+    HumanAwareActionGovernor,
+)
+from human_robot_gym.wrappers.pregrasp_recovery_wrapper import (
+    PregraspRecoveryWrapper,
+)
 from human_robot_gym.wrappers.action_based_expert_imitation_reward_wrapper import (
     CartActionBasedExpertImitationRewardWrapper,
     JointActionBasedExpertImitationRewardWrapper,
@@ -167,11 +175,14 @@ def create_expert(config: TrainingConfig, env: gym.Env) -> Expert:
     kwargs = _compose_expert_kwargs(config=config)
     assert config.expert is not None, "No expert specified in config!"
     assert config.expert.id in REGISTERED_EXPERTS, f"Expert {config.expert.id} not registered!"
-    return REGISTERED_EXPERTS[config.expert.id](
+    expert = REGISTERED_EXPERTS[config.expert.id](
         observation_space=env.observation_space,
         action_space=env.action_space,
         **kwargs
     )
+    if hasattr(expert, "set_environment"):
+        expert.set_environment(env)
+    return expert
 
 
 def _compose_ik_position_delta_wrapper_kwargs(config: TrainingConfig) -> Dict[str, Any]:
@@ -233,7 +244,11 @@ def state_based_expert_imitation_reward_wrap_fn(
             env=env,
             **config.wrappers.state_based_expert_imitation_reward,
         )
-    elif config.expert.id == "PickPlaceHumanCart":
+    elif config.expert.id in [
+        "PickPlaceHumanCart",
+        "RobotHumanHandoverCart",
+        "ReactiveHumanHandoverCart",
+    ]:
         return PickPlaceHumanCartStateBasedExpertImitationRewardWrapper(
             env=env,
             **config.wrappers.state_based_expert_imitation_reward,
@@ -374,6 +389,24 @@ def get_environment_wrap_fn(config: TrainingConfig) -> Callable[[gym.Env], gym.E
             )
 
         if (
+            hasattr(config.wrappers, "human_aware_action_governor")
+            and config.wrappers.human_aware_action_governor is not None
+        ):
+            env = HumanAwareActionGovernor(
+                env=env,
+                **config.wrappers.human_aware_action_governor,
+            )
+
+        if (
+            hasattr(config.wrappers, "pregrasp_recovery")
+            and config.wrappers.pregrasp_recovery is not None
+        ):
+            env = PregraspRecoveryWrapper(
+                env=env,
+                **config.wrappers.pregrasp_recovery,
+            )
+
+        if (
             hasattr(config.wrappers, "state_based_expert_imitation_reward") and
             config.wrappers.state_based_expert_imitation_reward is not None
         ):
@@ -391,6 +424,20 @@ def get_environment_wrap_fn(config: TrainingConfig) -> Callable[[gym.Env], gym.E
             env = DatasetObsNormWrapper(
                 env=env,
                 **_compose_dataset_obs_norm_wrapper_kwargs(config),
+            )
+
+        # Dense approach reward wrapper (placed after SIR, before normalization side-effects)
+        if hasattr(config.wrappers, "dense_approach_reward") and config.wrappers.dense_approach_reward is not None:
+            env = DenseApproachRewardWrapper(
+                env=env,
+                **config.wrappers.dense_approach_reward,
+            )
+
+        # Failsafe penalty wrapper
+        if hasattr(config.wrappers, "failsafe_penalty") and config.wrappers.failsafe_penalty is not None:
+            env = FailsafePenaltyWrapper(
+                env=env,
+                **config.wrappers.failsafe_penalty,
             )
 
         # Visualization wrapper

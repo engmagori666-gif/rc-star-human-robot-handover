@@ -9,9 +9,9 @@ bash_command="/bin/bash"
 
 docker_command="docker run -it"
 
-if [ $2 ]
+if [ -n "${2}" ]
 then
-    bash_command="/bin/bash -c ${2}"
+    bash_command="/bin/bash -c '${2}'"
     docker_command="docker run"
 fi
 

@@ -875,7 +875,12 @@ class HumanEnv(SingleArmEnv):
         Returns:
             bool: True if the collision is illegal, False otherwise
         """
-        return collision_type in (COLLISION_TYPE.STATIC | COLLISION_TYPE.ROBOT | COLLISION_TYPE.HUMAN_CRIT)
+        illegal_types = (
+            COLLISION_TYPE.STATIC
+            | COLLISION_TYPE.ROBOT
+            | COLLISION_TYPE.HUMAN_CRIT
+        )
+        return bool(collision_type & illegal_types)
 
     def _get_achieved_goal_from_obs(
         self, observation: Union[List[float], Dict]

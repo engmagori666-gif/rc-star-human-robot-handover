@@ -1,0 +1,6 @@
+defaults:
+  - reactive_human_handover_cart
+  - _self_
+env_id: TransparentHandoverCart
+legibility_weight: 0.1
+intent_weight: 0.5

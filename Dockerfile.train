@@ -107,6 +107,11 @@ RUN curl -LJO https://mujoco.org/download/mujoco210-linux-x86_64.tar.gz && \
     rm mujoco210-linux-x86_64.tar.gz
 
 RUN echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME_PATH/.mujoco/mujoco210/bin" >> $HOME_PATH/.bashrc
+# Also set as Docker ENV so conda run (which skips .bashrc) can find MuJoCo
+ENV LD_LIBRARY_PATH=$HOME_PATH/.mujoco/mujoco210/bin:/usr/lib/nvidia
+# Disable CUDA: RTX 5070 Ti is incompatible with PyTorch 1.x bundled in this env.
+# SAC training on CPU is perfectly viable for this scale of experiment.
+ENV CUDA_VISIBLE_DEVICES=""
 
 WORKDIR $HOME_PATH
 
