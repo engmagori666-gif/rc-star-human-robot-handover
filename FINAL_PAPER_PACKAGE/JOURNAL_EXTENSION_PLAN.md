@@ -40,6 +40,38 @@ The conference paper shows that a fixed scripted-human baseline fails to produce
 | Critical collisions / episode | 6.038 | 0.228 |
 | Episode reward | -810.40 | 21.06 |
 
+## Cross-Seed 95% Confidence Intervals
+
+Matched evaluation, 5 independent seeds x 100 evaluation episodes per
+condition (500 episodes total per condition). Each seed's 100 episodes are
+first reduced to one per-seed mean; the cross-seed mean +/- 95% CI is then
+computed over the 5 per-seed means (t-distribution, df=4, t=2.776), so the
+seed — not the raw episode — is the statistical unit.
+
+| Metric | Baseline RHH-SIR | RC-STAR |
+|---|---:|---:|
+| Success rate | 0.046 +/- 0.121 | 0.726 +/- 0.071 |
+| Shield interventions / episode | 21.80 +/- 27.25 | 34.98 +/- 2.92 |
+| Human collisions / episode | 0.502 +/- 0.524 | 0.000 +/- 0.000 |
+| Critical collisions / episode | 6.038 +/- 7.764 | 0.228 +/- 0.030 |
+| Episode reward | -810.40 +/- 301.04 | 21.06 +/- 1.74 |
+
+Full table: `csv_results/evaluation/cross_seed_ci_table.csv`.
+Full writeup: `CROSS_SEED_CI_RESULTS.md`.
+
+**Interpretation:** Baseline RHH-SIR has high seed-to-seed variance — its
+per-seed means for success rate, shield interventions, and critical
+collisions swing widely (e.g. one seed shows 0 shield interventions and 0
+critical collisions, essentially failing immediately, while another seed
+shows 58.25 interventions and 14.62 critical collisions). This variance
+produces wide baseline CIs; for nonnegative metrics, the unbounded
+t-based interval can even extend below zero. RC-STAR, in contrast, is
+stable across seeds on every metric (e.g. success rate 0.65-0.78 across
+all 5 seeds, critical collisions 0.19-0.25), with especially tight CIs for
+shield interventions, critical collisions, and reward. This asymmetry is
+itself a result worth stating explicitly: RC-STAR is not only better on
+average, it is more reproducible across training seeds than the baseline.
+
 ## Recommended Journal Additions
 
 ### 1. More ablation structure
@@ -139,8 +171,8 @@ Be explicit:
 
 Priority 1:
 
-- Re-evaluate RC-STAR and baseline with the same number of episodes and matched seeds.
-- Produce confidence intervals for success and collision metrics.
+- Re-evaluate RC-STAR and baseline with the same number of episodes and matched seeds. **Done** — 5 seeds x 100 episodes per condition.
+- Produce confidence intervals for success and collision metrics. **Done** — see "Cross-Seed 95% Confidence Intervals" above and `CROSS_SEED_CI_RESULTS.md`.
 
 Priority 2:
 

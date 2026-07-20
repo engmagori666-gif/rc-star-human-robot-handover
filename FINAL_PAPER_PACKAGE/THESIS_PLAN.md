@@ -114,6 +114,11 @@ Sections:
 - Training configuration.
 - Dataset collection.
 - Evaluation protocol.
+  - 5 independent seeds x 100 evaluation episodes per condition (matched
+    across baseline and RC-STAR).
+  - Confidence intervals computed at the seed level: each seed's 100
+    episodes reduce to one per-seed mean, and the reported 95% CI is over
+    the 5 per-seed means (t-distribution, df=4), not over raw episodes.
 - Metrics:
   - success
   - safe success
@@ -134,6 +139,32 @@ Main table:
 | Human collisions / episode | 0.50 | 0.00 |
 | Critical collisions / episode | 6.038 | 0.228 |
 | Episode reward | -810.40 | 21.06 |
+
+Cross-seed 95% confidence intervals (5 independent seeds x 100 evaluation
+episodes per condition; each seed reduced to one per-seed mean, then
+mean +/- 95% CI computed across the 5 per-seed means, t-distribution df=4):
+
+| Metric | Baseline RHH-SIR | RC-STAR |
+|---|---:|---:|
+| Success rate | 0.046 +/- 0.121 | 0.726 +/- 0.071 |
+| Shield interventions / episode | 21.80 +/- 27.25 | 34.98 +/- 2.92 |
+| Human collisions / episode | 0.502 +/- 0.524 | 0.000 +/- 0.000 |
+| Critical collisions / episode | 6.038 +/- 7.764 | 0.228 +/- 0.030 |
+| Episode reward | -810.40 +/- 301.04 | 21.06 +/- 1.74 |
+
+Full table: `csv_results/evaluation/cross_seed_ci_table.csv`.
+Full writeup: `CROSS_SEED_CI_RESULTS.md`.
+
+Baseline RHH-SIR shows high seed-to-seed variance — its per-seed success
+rate, shield-intervention, and critical-collision means swing widely
+across the 5 seeds (one seed effectively fails immediately with 0 shield
+interventions and 0 critical collisions, another reaches 58.25
+interventions and 14.62 critical collisions), so its CIs are wide; for
+nonnegative metrics, the unbounded t-based interval can even extend below
+zero. RC-STAR is stable across all 5 seeds on every metric, with especially
+tight CIs for shield interventions, critical collisions, and reward. This
+should be presented as a result in its own right: RC-STAR is not only
+better on average, it is more reproducible across training seeds.
 
 Discussion:
 
