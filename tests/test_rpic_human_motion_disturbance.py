@@ -1,13 +1,11 @@
 import numpy as np
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
 
 from human_robot_gym.environments.manipulation.human_motion_disturbance import (
     HumanMotionDisturbanceSchedule,
     disturbed_reach_progress,
-)
-from human_robot_gym.environments.manipulation.ours_v1_handover_env import (
-    ReactiveHumanHandoverCartV1,
+    initial_state_fingerprint,
 )
 from human_robot_gym.environments.manipulation.rpic_handover_env import (
     ReactiveHumanHandoverCartV1RPIC,
@@ -60,6 +58,35 @@ class HumanMotionDisturbanceTests(unittest.TestCase):
         schedule.end_policy_step()
         self.assertTrue(schedule.completed)
 
+    def test_active_disturbance_stops_when_eligibility_is_lost(self):
+        schedule = HumanMotionDisturbanceSchedule(
+            "reach_reversal", 4, 1, 1, 5
+        )
+        self.assertTrue(schedule.begin_policy_step(eligible=True))
+        self.assertFalse(schedule.begin_policy_step(eligible=False))
+        self.assertFalse(schedule.active)
+        self.assertTrue(schedule.interrupted)
+        self.assertFalse(schedule.completed)
+
+    def test_initial_state_fingerprint_is_stable_and_sensitive(self):
+        first = initial_state_fingerprint([1.0, 2.0], [3.0])
+        repeated = initial_state_fingerprint([1.0, 2.0], [3.0])
+        changed = initial_state_fingerprint([1.0, 2.1], [3.0])
+        self.assertEqual(first, repeated)
+        self.assertNotEqual(first, changed)
+
+    def test_missing_reach_progress_recovers_from_animation_frame(self):
+        env = ReactiveHumanHandoverCartV1RPIC.__new__(
+            ReactiveHumanHandoverCartV1RPIC
+        )
+        env._human_animation_ids = np.array([0])
+        env._human_animation_ids_index = 0
+        env.human_animation_data = [({}, {"keyframes": [10, 20]})]
+        env.animation_time = 14
+        self.assertEqual(env._get_bounded_reach_progress(), 4.0)
+        env._reach_out_progress = 100.0
+        self.assertEqual(env._get_bounded_reach_progress(), 10.0)
+
     def test_active_measurement_is_current_and_forwarded_to_shield_path(self):
         class MeasurementHarness(ReactiveHumanHandoverCartV1RPIC):
             @property
@@ -76,17 +103,25 @@ class HumanMotionDisturbanceTests(unittest.TestCase):
         env._rpic_shield_measurement_changes_during_disturbance = 0
         env._rpic_shield_measurement_stale_mismatches = 0
         env._rpic_shield_measurement_time_regressions = 0
+        env._rpic_pfl_measurement_forward_calls = 0
+        env._rpic_pfl_measurement_forward_calls_during_disturbance = 0
         env._rpic_last_shield_measurement = None
         env._rpic_last_shield_measurement_time = None
         env.current_measurement = [np.array([0.1, 0.2, 0.3])]
+        received = []
+        controller = SimpleNamespace(
+            set_human_measurement=lambda measurement, time: received.append(
+                (measurement, time)
+            )
+        )
+        env.robots = [SimpleNamespace(controller=controller)]
+        env.failsafe_controller = [object()]
+        env.shield_type = "PFL"
 
-        with patch.object(
-            ReactiveHumanHandoverCartV1, "_set_human_measurement"
-        ) as forward:
-            env._set_human_measurement(env.current_measurement, 1.25)
+        env._set_human_measurement(env.current_measurement, 1.25)
 
-        forward.assert_called_once()
-        forwarded_measurement, forwarded_time = forward.call_args.args[1:]
+        self.assertEqual(len(received), 1)
+        forwarded_measurement, forwarded_time = received[0]
         self.assertTrue(
             np.allclose(forwarded_measurement, env.current_measurement)
         )
@@ -96,8 +131,11 @@ class HumanMotionDisturbanceTests(unittest.TestCase):
         )
         self.assertEqual(env._rpic_shield_measurement_stale_mismatches, 0)
         self.assertEqual(env._rpic_shield_measurement_time_regressions, 0)
+        self.assertEqual(env._rpic_pfl_measurement_forward_calls, 1)
+        self.assertEqual(
+            env._rpic_pfl_measurement_forward_calls_during_disturbance, 1
+        )
 
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,5 +1,6 @@
 """Deterministic, evaluation-only human-motion disturbance scheduling."""
 from dataclasses import dataclass
+import hashlib
 
 import numpy as np
 
@@ -42,6 +43,7 @@ class HumanMotionDisturbanceSchedule:
         self.active_steps_remaining = 0
         self.triggered = False
         self.completed = False
+        self.interrupted = False
 
     @property
     def active(self) -> bool:
@@ -50,6 +52,9 @@ class HumanMotionDisturbanceSchedule:
     def begin_policy_step(self, eligible: bool) -> bool:
         """Advance the trigger clock and return whether this step is disturbed."""
         if self.condition == "normal" or self.completed:
+            return False
+        if self.active and not eligible:
+            self.interrupt()
             return False
         if not self.triggered and eligible:
             self.eligible_steps += 1
@@ -64,6 +69,23 @@ class HumanMotionDisturbanceSchedule:
             if self.active_steps_remaining == 0:
                 self.completed = True
 
+    def interrupt(self):
+        """Stop an active event immediately when pre-capture eligibility is lost."""
+        if self.active:
+            self.active_steps_remaining = 0
+            self.interrupted = True
+
+
+def initial_state_fingerprint(*arrays) -> str:
+    """Return a stable fingerprint for paired numeric initial-state arrays."""
+    digest = hashlib.sha256()
+    for array in arrays:
+        values = np.asarray(array, dtype=np.float64)
+        values = np.round(values, decimals=12)
+        digest.update(np.asarray(values.shape, dtype=np.int64).tobytes())
+        digest.update(values.astype("<f8", copy=False).tobytes())
+    return digest.hexdigest()
+
 
 def disturbed_reach_progress(
     condition: str,
@@ -77,4 +99,3 @@ def disturbed_reach_progress(
     if condition == "reach_reversal":
         return float(max(previous_progress - reversal_speed, 0.0))
     return float(nominal_progress)
-

@@ -70,6 +70,8 @@ class ReactiveHumanHandoverCartV1RPIC(ReactiveHumanHandoverCartV1):
         self._rpic_shield_measurement_changes_during_disturbance = 0
         self._rpic_shield_measurement_stale_mismatches = 0
         self._rpic_shield_measurement_time_regressions = 0
+        self._rpic_pfl_measurement_forward_calls = 0
+        self._rpic_pfl_measurement_forward_calls_during_disturbance = 0
         self._rpic_last_shield_measurement = None
         self._rpic_last_shield_measurement_time = None
 
@@ -89,7 +91,7 @@ class ReactiveHumanHandoverCartV1RPIC(ReactiveHumanHandoverCartV1):
         )
 
     def _compute_animation_time(self, control_time: int) -> int:
-        previous_progress = float(self._reach_out_progress)
+        previous_progress = self._get_bounded_reach_progress()
         animation_time = super()._compute_animation_time(control_time)
         if (
             not self._rpic_schedule.active
@@ -119,6 +121,20 @@ class ReactiveHumanHandoverCartV1RPIC(ReactiveHumanHandoverCartV1):
         self._rpic_disturbed_low_level_updates += 1
         return animation_time
 
+    def _get_bounded_reach_progress(self) -> float:
+        """Return the inherited progress, recovering from absent/stale state."""
+        keyframes = self.human_animation_data[self.human_animation_id][1][
+            "keyframes"
+        ]
+        max_progress = float(keyframes[1] - keyframes[0])
+        progress = getattr(self, "_reach_out_progress", None)
+        if progress is None or not np.isfinite(progress):
+            current_frame = max(int(getattr(self, "animation_time", 0)), 0)
+            progress = current_frame - int(keyframes[0])
+        progress = float(np.clip(progress, 0.0, max_progress))
+        self._reach_out_progress = progress
+        return progress
+
     def _set_human_measurement(self, human_measurement: List[np.ndarray], time):
         measurement = np.asarray(human_measurement, dtype=float)
         current = np.asarray(self.human_measurement, dtype=float)
@@ -144,7 +160,18 @@ class ReactiveHumanHandoverCartV1RPIC(ReactiveHumanHandoverCartV1):
                 self._rpic_shield_measurement_changes_during_disturbance += 1
         self._rpic_last_shield_measurement = measurement.copy()
         self._rpic_last_shield_measurement_time = float(time)
+        expected_consumers = 0
+        if self.failsafe_controller is not None and self.shield_type == "PFL":
+            expected_consumers = sum(
+                int(hasattr(robot.controller, "set_human_measurement"))
+                for robot in self.robots
+            )
         super()._set_human_measurement(human_measurement, time)
+        self._rpic_pfl_measurement_forward_calls += expected_consumers
+        if self._rpic_schedule.active:
+            self._rpic_pfl_measurement_forward_calls_during_disturbance += (
+                expected_consumers
+            )
 
     def _update_rpic_deadlock(self):
         if (
@@ -204,12 +231,14 @@ class ReactiveHumanHandoverCartV1RPIC(ReactiveHumanHandoverCartV1):
             "rpic_trigger_delay_steps": self._rpic_schedule.trigger_delay_steps,
             "rpic_disturbance_triggered": int(self._rpic_schedule.triggered),
             "rpic_disturbance_completed": int(self._rpic_schedule.completed),
+            "rpic_disturbance_interrupted": int(self._rpic_schedule.interrupted),
             "rpic_disturbed_policy_steps": self._rpic_disturbed_policy_steps,
             "rpic_disturbed_low_level_updates": (
                 self._rpic_disturbed_low_level_updates
             ),
             "rpic_stable_grasp_steps": self._rpic_stable_grasp_steps,
             "rpic_deadlock": int(self._rpic_deadlock),
+            "rpic_precapture_progress_stall": int(self._rpic_deadlock),
             "rpic_max_stall_steps": self._rpic_max_stall_steps,
             "rpic_shield_measurement_calls": self._rpic_shield_measurement_calls,
             "rpic_shield_measurement_calls_during_disturbance": (
@@ -224,10 +253,15 @@ class ReactiveHumanHandoverCartV1RPIC(ReactiveHumanHandoverCartV1):
             "rpic_shield_measurement_time_regressions": (
                 self._rpic_shield_measurement_time_regressions
             ),
+            "rpic_pfl_measurement_forward_calls": (
+                self._rpic_pfl_measurement_forward_calls
+            ),
+            "rpic_pfl_measurement_forward_calls_during_disturbance": (
+                self._rpic_pfl_measurement_forward_calls_during_disturbance
+            ),
         }
 
     def _get_info(self) -> Dict:
         info = super()._get_info()
         info.update(self._get_rpic_info())
         return info
-

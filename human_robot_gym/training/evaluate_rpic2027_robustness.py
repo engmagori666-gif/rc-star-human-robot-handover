@@ -11,6 +11,9 @@ from omegaconf import OmegaConf
 import robosuite  # noqa: F401
 import human_robot_gym.environments  # noqa: F401
 
+from human_robot_gym.environments.manipulation.human_motion_disturbance import (
+    initial_state_fingerprint,
+)
 from human_robot_gym.utils.training_utils import create_wrapped_env_from_config
 from human_robot_gym.utils.training_utils_SB3 import load_model
 
@@ -23,18 +26,27 @@ DEFAULT_PROTOCOL = ROOT / (
 
 METRICS = (
     "n_goal_reached",
+    "collision",
+    "n_collisions",
+    "n_collisions_static",
+    "n_collisions_robot",
     "n_collisions_human",
     "n_collisions_critical",
     "timeout",
     "failsafe_interventions",
     "human_governor_interventions",
+    "human_governor_last_scale",
+    "human_governor_mean_scale",
+    "human_governor_min_predicted_distance",
     "human_governor_budget_exhausted",
     "v1_capture_count",
     "v1_release_confirmed",
     "rpic_deadlock",
+    "rpic_precapture_progress_stall",
     "rpic_max_stall_steps",
     "rpic_disturbance_triggered",
     "rpic_disturbance_completed",
+    "rpic_disturbance_interrupted",
     "rpic_trigger_delay_steps",
     "rpic_disturbed_policy_steps",
     "rpic_disturbed_low_level_updates",
@@ -42,6 +54,8 @@ METRICS = (
     "rpic_shield_measurement_changes_during_disturbance",
     "rpic_shield_measurement_stale_mismatches",
     "rpic_shield_measurement_time_regressions",
+    "rpic_pfl_measurement_forward_calls",
+    "rpic_pfl_measurement_forward_calls_during_disturbance",
 )
 
 
@@ -107,6 +121,61 @@ def make_config(protocol, condition: str, episodes: int, evaluation_seed: int):
     return config
 
 
+def iter_wrappers(env):
+    current = env
+    seen = set()
+    while current is not None and id(current) not in seen:
+        yield current
+        seen.add(id(current))
+        current = getattr(current, "env", None)
+
+
+def validate_normalization(env, expected_observation_shape):
+    normalizers = [
+        wrapper
+        for wrapper in iter_wrappers(env)
+        if hasattr(wrapper, "_obs_mean") and hasattr(wrapper, "_obs_std")
+    ]
+    if len(normalizers) != 1:
+        raise RuntimeError(
+            f"Expected exactly one observation normalizer, found {len(normalizers)}"
+        )
+    mean = np.asarray(normalizers[0]._obs_mean, dtype=float)
+    std = np.asarray(normalizers[0]._obs_std, dtype=float)
+    if mean.shape != expected_observation_shape or std.shape != expected_observation_shape:
+        raise RuntimeError(
+            "Normalization shape mismatch: "
+            f"mean={mean.shape}, std={std.shape}, expected={expected_observation_shape}"
+        )
+    if not np.all(np.isfinite(mean)) or not np.all(np.isfinite(std)):
+        raise RuntimeError("Normalization contains non-finite values")
+    if np.any(std <= 0):
+        raise RuntimeError("Normalization standard deviations must be positive")
+    return {
+        "mean_sha256": hashlib.sha256(mean.astype("<f8").tobytes()).hexdigest(),
+        "std_sha256": hashlib.sha256(std.astype("<f8").tobytes()).hexdigest(),
+        "shape": list(mean.shape),
+    }
+
+
+def get_base_environment(env):
+    wrappers = list(iter_wrappers(env))
+    return getattr(wrappers[-1], "unwrapped", wrappers[-1])
+
+
+def fingerprint_reset_state(env, observation):
+    base = get_base_environment(env)
+    arrays = [np.asarray(observation, dtype=float)]
+    if hasattr(base, "sim"):
+        arrays.extend(
+            [
+                np.asarray(base.sim.data.qpos, dtype=float),
+                np.asarray(base.sim.data.qvel, dtype=float),
+            ]
+        )
+    return initial_state_fingerprint(*arrays)
+
+
 def evaluate_condition(protocol, condition: str, episodes: int, seed: int):
     config = make_config(protocol, condition, episodes, seed)
     # Environment construction pre-samples animation IDs. Seed before creating
@@ -120,6 +189,7 @@ def evaluate_condition(protocol, condition: str, episodes: int, seed: int):
         load_step=str(protocol.load_step),
     )
     environment_observation_shape = env.observation_space.shape
+    normalization = validate_normalization(env, environment_observation_shape)
     append_time_feature = model.observation_space.shape != environment_observation_shape
     mean_episode_length = None
     if append_time_feature:
@@ -143,6 +213,11 @@ def evaluate_condition(protocol, condition: str, episodes: int, seed: int):
             "Checkpoint and evaluation action shapes differ: "
             f"{model.action_space.shape} != {env.action_space.shape}"
         )
+    if not (
+        np.allclose(model.action_space.low, env.action_space.low)
+        and np.allclose(model.action_space.high, env.action_space.high)
+    ):
+        raise RuntimeError("Checkpoint and evaluation action bounds differ")
     model.set_env(env)
 
     # Model loading restores its training RNG. Resetting here preserves paired
@@ -151,6 +226,7 @@ def evaluate_condition(protocol, condition: str, episodes: int, seed: int):
     rows = []
     for episode_index in range(episodes):
         obs = env.reset()
+        reset_fingerprint = fingerprint_reset_state(env, obs)
         done = False
         episode_return = 0.0
         episode_length = 0
@@ -171,6 +247,7 @@ def evaluate_condition(protocol, condition: str, episodes: int, seed: int):
             "episode_return": episode_return,
             "episode_length": episode_length,
             "success": int(info["n_goal_reached"] > 0),
+            "initial_state_fingerprint": reset_fingerprint,
         }
         for metric in METRICS:
             row[metric] = info[metric]
@@ -181,6 +258,7 @@ def evaluate_condition(protocol, condition: str, episodes: int, seed: int):
         "observation_shape": list(model.observation_space.shape),
         "action_shape": list(model.action_space.shape),
         "existing_sir_time_feature_appended": append_time_feature,
+        "normalization": normalization,
     }
 
 
@@ -235,14 +313,37 @@ def main():
         spaces[condition] = condition_spaces
 
     combined = pd.concat(frames, ignore_index=True)
+    fingerprint_counts = combined.groupby("paired_episode_index")[
+        "initial_state_fingerprint"
+    ].nunique()
+    if not bool((fingerprint_counts == 1).all()):
+        mismatched = fingerprint_counts[fingerprint_counts != 1].index.tolist()
+        raise RuntimeError(
+            f"Paired initial-state fingerprint mismatch in episodes {mismatched}"
+        )
+    if int(combined["rpic_shield_measurement_stale_mismatches"].sum()) != 0:
+        raise RuntimeError("Stale human measurements were detected")
+    if int(combined["rpic_shield_measurement_time_regressions"].sum()) != 0:
+        raise RuntimeError("Human-measurement timestamp regressions were detected")
+    triggered = combined[combined["rpic_disturbance_triggered"] == 1]
+    if not triggered.empty and bool(
+        (triggered["rpic_pfl_measurement_forward_calls_during_disturbance"] <= 0).any()
+    ):
+        raise RuntimeError(
+            "A triggered disturbance did not reach the PFL controller pathway"
+        )
     combined.to_csv(args.output_dir / "episodes.csv", index=False)
     summary = combined.groupby("condition", sort=False).agg(
         episodes=("success", "size"),
         success_rate=("success", "mean"),
+        total_collisions=("n_collisions", "sum"),
         human_collisions=("n_collisions_human", "sum"),
         critical_collisions=("n_collisions_critical", "sum"),
         timeout_rate=("timeout", "mean"),
-        deadlock_rate=("rpic_deadlock", "mean"),
+        precapture_progress_stall_rate=(
+            "rpic_precapture_progress_stall",
+            "mean",
+        ),
         shield_interventions=("failsafe_interventions", "sum"),
         governor_interventions=("human_governor_interventions", "sum"),
         governor_budget_exhaustion_rate=(
@@ -250,8 +351,18 @@ def main():
             "mean",
         ),
         disturbance_trigger_rate=("rpic_disturbance_triggered", "mean"),
+        disturbance_completion_rate=("rpic_disturbance_completed", "mean"),
+        disturbance_interruption_rate=("rpic_disturbance_interrupted", "mean"),
         stale_measurement_mismatches=(
             "rpic_shield_measurement_stale_mismatches",
+            "sum",
+        ),
+        timestamp_regressions=(
+            "rpic_shield_measurement_time_regressions",
+            "sum",
+        ),
+        pfl_measurement_forwards_during_disturbance=(
+            "rpic_pfl_measurement_forward_calls_during_disturbance",
             "sum",
         ),
     )
@@ -262,6 +373,7 @@ def main():
         "evaluation_seed": seed,
         "conditions": conditions,
         "spaces": spaces,
+        "paired_initial_states_verified": True,
         "provenance": provenance,
     }
     (args.output_dir / "manifest.json").write_text(
@@ -273,4 +385,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
