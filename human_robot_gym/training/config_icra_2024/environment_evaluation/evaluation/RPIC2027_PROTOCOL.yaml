@@ -1,0 +1,43 @@
+name: rpic2027_zero_shot_human_motion_robustness
+base_evaluation_config: human_robot_gym/training/config_icra_2024/environment_evaluation/evaluation/RHH-SIR-reactive-v1-final.yaml
+environment_id: ReactiveHumanHandoverCartV1RPIC
+model_run_id: icra_2024/RHH_SIR_reactive_v1_final/run_0
+load_step: final
+conditions:
+  - normal
+  - delayed_response
+  - reach_reversal
+evaluation_seed: 2701
+disturbance:
+  seed: 2701
+  stable_grasp_steps: 2
+  trigger_min_steps: 2
+  trigger_max_steps: 5
+  delay_duration_steps: 8
+  reversal_duration_steps: 6
+  reversal_speed_frames_per_low_level_update: 0.5
+deadlock:
+  window_steps: 50
+  progress_epsilon_m: 0.001
+provenance:
+  model:
+    path: models/icra_2024/RHH_SIR_reactive_v1_final/run_0/model_final.zip
+    bytes: 1433852
+    sha256: 38cf59a40a48544a228a3783bc4ecf2800c4e6339b207c26a1740969485b7385
+  training_config:
+    path: models/icra_2024/RHH_SIR_reactive_v1_final/run_0/config.yaml
+    bytes: 5868
+    sha256: 2571d90e98e31546af4520bdb8cc26d03e582c644ba4bc6f8e7c222666b16a6d
+  normalization:
+    path: datasets/reactive-human-handover-v1-bc-success/observations.csv
+    bytes: 443
+    sha256: a50b5fbd191ba21c5b5aeb63ce92bd5b5c26539a9c9fa97c786bd50f6460cd5c
+  dataset_statistics:
+    path: datasets/reactive-human-handover-v1-bc-success/stats.csv
+    bytes: 148
+    sha256: 4b1dd99f75e8fb729c857f1193119172c3020859d1d48441cefb4881d8e9e1b3
+  evaluation_config:
+    path: human_robot_gym/training/config_icra_2024/environment_evaluation/evaluation/RHH-SIR-reactive-v1-final.yaml
+    bytes: 5173
+    sha256: 63b3a829b6aa049854e3217e1976ce05ca097463391c16488b7eccbfab74df10
+

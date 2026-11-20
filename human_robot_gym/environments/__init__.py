@@ -36,5 +36,9 @@ from human_robot_gym.environments.manipulation.transparent_handover_env import (
 from human_robot_gym.environments.manipulation.ours_v1_handover_env import (  # noqa: F401
     ReactiveHumanHandoverCartV1
 )
+from human_robot_gym.environments.manipulation.rpic_handover_env import (  # noqa: F401
+    ReactiveHumanHandoverCartV1RPIC,
+)
 
 ALL_ENVIRONMENTS = REGISTERED_ENVS.keys()
+
