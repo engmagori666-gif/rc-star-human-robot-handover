@@ -1,0 +1,50 @@
+# ICRCA 2027: independent experimental metadata, NOT a legacy Hydra config.
+# No original configuration, model, or dataset is changed.
+experiment:
+  status: protocol_only
+  run_training: false
+  evaluation_only: true
+  original_evaluation_config: human_robot_gym/training/config_icra_2024/environment_evaluation/evaluation/RHH-SIR-reactive-v1-final.yaml
+  environment_id: ReactiveHumanHandoverCartV1
+  policy_frequency_hz: 10
+  horizon_steps: 1000
+  frozen_checkpoint: null  # Must be supplied explicitly before evaluation
+  normalization_dataset: reactive-human-handover-v1-bc-success
+  output_directory: null  # Must be a new, nonexisting directory
+  overwrite_existing: false
+  independent_shield: PFL
+  governor_intervention_budget: 75
+  seed_policy: paired_same_seed_per_condition
+comparators:
+  - id: existing_predictive
+    description: Existing RC-STAR fixed-threshold predictive governor
+    activation_distance_m: 0.22
+    hard_distance_m: 0.18
+    prediction_horizon_steps: 1.0
+  - id: tuned_fixed_horizon
+    description: Existing governor with a separately calibrated horizon
+    activation_distance_m: 0.22
+    hard_distance_m: 0.18
+    prediction_horizon_steps: null
+  - id: velocity_adaptive
+    description: Experimental stopping-distance-inspired threshold
+    activation_distance_m: 0.22
+    hard_distance_m: 0.18
+    prediction_horizon_steps: 1.0
+    policy_dt_s: 0.1
+    extra_response_time_s: 0.1
+    effective_deceleration_m_s2: 2.0
+    max_activation_distance_m: 0.45
+metrics:
+  primary:
+    - v1_release_confirmed
+    - n_collisions_critical
+  secondary:
+    - n_collisions_human
+    - timeout
+    - failsafe_interventions
+    - human_governor_interventions
+    - human_governor_budget_exhausted
+    - human_governor_min_predicted_distance
+    - human_governor_adaptive_threshold
+  note: Verify actual metric availability and semantics before running.
